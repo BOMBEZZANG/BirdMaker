@@ -9,6 +9,7 @@ TagManager:
   - ResourceNode
   - FeatherNode
   - TrashArea
+  - MossNode
   layers:
   - Default
   - TransparentFX
