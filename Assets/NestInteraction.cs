@@ -1,102 +1,126 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 using System.Collections.Generic;
-using Random = UnityEngine.Random;
+using Random = UnityEngine.Random; // GetRandomValidPositionInNest 에서 사용
 using System.Collections;
-using System.Linq;
+using System.Linq; // List 변환 위해 추가
 
+/// <summary>
+/// 둥지 오브젝트에 부착되어 깃털 추가/제거 상호작용 및 시각 효과, 편집 모드를 관리합니다.
+/// </summary>
 [RequireComponent(typeof(Collider2D))]
 public class NestInteraction : MonoBehaviour, IPointerClickHandler
 {
-    // ... (기존 Header 및 변수 선언: featherVisualPrefab, nestAreaCollider, warmthPerFeather) ...
     [Header("Feather Visuals")]
+    [Tooltip("둥지에 배치될 깃털 시각 오브젝트의 프리팹")]
     [SerializeField] private GameObject featherVisualPrefab;
+    [Tooltip("깃털이 배치될 영역을 정의하는 콜라이더")]
     [SerializeField] private Collider2D nestAreaCollider;
 
     [Header("Warmth Settings")]
+    [Tooltip("깃털 1개당 알에게 전달/제거할 온기량")]
     [SerializeField] private float warmthPerFeather = 5f;
 
     [Header("UI Elements")]
+    [Tooltip("깃털 제거 버튼 프리팹")]
     [SerializeField] private GameObject removeButtonPrefab;
+    [Tooltip("UI 요소(제거 버튼 등)가 배치될 부모 Canvas")]
     [SerializeField] private Canvas parentCanvas;
-    // *** 새로 추가: 편집 모드 시각 효과용 ***
     [Tooltip("편집 모드 시 활성화될 배경 어둡게 하는 Panel")]
-    [SerializeField] private GameObject editModeDimPanel; // Inspector에서 연결 필요!
+    [SerializeField] private GameObject editModeDimPanel;
+    // *** 변수 선언 확인 ***
+    [Tooltip("편집 모드 시 활성화될 툴바 Panel")]
+    [SerializeField] private GameObject editModeToolbarPanel; // Inspector에서 연결 필요!
 
     // 내부 관리용 변수
     private EggController eggController;
     private List<GameObject> activeFeatherVisuals = new List<GameObject>();
-
-    // *** 새로 추가: 편집 모드 상태 변수 ***
-    /// <summary> 현재 둥지 편집 모드인지 여부 </summary>
-    public bool IsEditing { get; private set; } = false; // 초기값은 false (보기 모드)
+    public bool IsEditing { get; private set; } = false; // 편집 모드 상태
+    private Camera mainCamera; // 카메라 캐싱
 
     [System.Obsolete]
     void Start()
     {
+        mainCamera = Camera.main; // 메인 카메라 캐싱
         eggController = FindObjectOfType<EggController>();
         // 필수 참조 확인
-        // ... (기존 null 체크들) ...
-        if (editModeDimPanel == null) Debug.LogError("Edit Mode Dim Panel이 연결되지 않았습니다!", this); // Dim Panel 체크 추가
+        if (featherVisualPrefab == null) Debug.LogError("Feather Visual Prefab Missing!", this);
+        if (nestAreaCollider == null) Debug.LogError("Nest Area Collider Missing!", this);
+        if (removeButtonPrefab == null) Debug.LogError("Remove Button Prefab Missing!", this);
+        if (parentCanvas == null) Debug.LogError("Parent Canvas Missing!", this);
+        if (editModeDimPanel == null) Debug.LogError("Edit Mode Dim Panel Missing!", this);
+        // *** editModeToolbarPanel null 체크 추가 ***
+        if (editModeToolbarPanel == null) Debug.LogError("Edit Mode Toolbar Panel Missing!", this);
+        if (eggController == null) Debug.LogError("EggController Missing!", this);
+        if (InventoryManager.Instance == null) Debug.LogError("InventoryManager Instance Missing!", this);
+        if (DataManager.Instance == null) Debug.LogError("DataManager Instance Missing!", this);
 
-        // 시작 시 편집 모드 비활성화 상태 및 시각 효과 적용
-        SetEditMode(false); // 초기 상태 설정
-        // editModeDimPanel?.SetActive(false); // SetEditMode 내부에서 처리
-
-        StartCoroutine(InitializeFeathersAfterOneFrame());
+        SetEditMode(false); // 시작 시 편집 모드 비활성화 및 관련 UI 설정
+        StartCoroutine(InitializeFeathersAfterOneFrame()); // 저장된 깃털 복원
     }
 
+    /// <summary> 저장된 데이터 기준으로 초기 깃털 위치 복원 </summary>
     private IEnumerator InitializeFeathersAfterOneFrame()
     {
-        yield return null;
-        if (DataManager.Instance != null && DataManager.Instance.CurrentGameData != null)
+        yield return null; // 데이터 로드 기다림
+        if (DataManager.Instance?.CurrentGameData != null)
         {
             List<Vector2> loadedPositions = DataManager.Instance.CurrentGameData.featherPositions;
             ClearAllFeatherVisuals();
             foreach (Vector2 pos in loadedPositions)
             {
-                SpawnFeatherVisualAt(pos, false);
+                SpawnFeatherVisualAt(new Vector3(pos.x, pos.y, GetFeatherZPos()), false);
             }
         }
-        else { /* ... 데이터 준비 안됨 로그 ... */ }
+        else { /* 데이터 준비 안됨 로그 */ }
     }
 
-    /// <summary> 둥지 클릭 시 (깃털 추가 - 이제 편집 모드가 아닐 때만 작동하도록 수정 필요) </summary>
+    /// <summary> 둥지 클릭 시 (깃털 추가 - 편집 모드에서만 작동) </summary>
     public void OnPointerClick(PointerEventData eventData)
     {
-        // 편집 모드이거나 다른 깃털 상호작용 중이면 둥지 클릭(깃털 추가) 무시
-        if (IsEditing || NestFeatherVisual.IsAnyDraggingOrInteracting()) return;
+        // 편집 모드가 아니거나, 다른 깃털 상호작용 중이면 무시
+        if (!IsEditing || NestFeatherVisual.IsAnyDraggingOrInteracting()) return;
 
+        // 왼쪽 클릭일 때만 깃털 추가 시도
         if (eventData.button == PointerEventData.InputButton.Left)
         {
-             TryAddFeather();
+            if (InventoryManager.Instance == null || DataManager.Instance == null || eggController == null || mainCamera == null) return;
+
+            // 클릭된 화면 좌표를 월드 좌표로 변환
+            float targetZ = GetFeatherZPos();
+            Vector3 clickWorldPosition = Vector3.zero;
+            Ray ray = mainCamera.ScreenPointToRay(eventData.position);
+            if (Mathf.Abs(ray.direction.z) > 0.0001f) { float t = (targetZ - ray.origin.z) / ray.direction.z; clickWorldPosition = ray.GetPoint(t); }
+            else { clickWorldPosition = mainCamera.ScreenToWorldPoint(new Vector3(eventData.position.x, eventData.position.y, mainCamera.nearClipPlane + Mathf.Abs(targetZ - mainCamera.transform.position.z))); clickWorldPosition.z = targetZ; }
+
+            // 클릭 위치 유효성 검사 후 깃털 추가 시도
+            if (IsPositionInNestArea(clickWorldPosition))
+            {
+                TryAddFeatherAt(clickWorldPosition);
+            }
+            else { Debug.Log("클릭한 위치가 둥지 영역 내부가 아닙니다."); }
         }
     }
 
-    /// <summary> 깃털 추가 시도 </summary>
-    private void TryAddFeather()
+    /// <summary> 지정된 위치에 깃털 추가를 시도합니다. </summary>
+    private void TryAddFeatherAt(Vector3 spawnPosition)
     {
-         if (InventoryManager.Instance == null || DataManager.Instance == null || eggController == null) return;
          if (InventoryManager.Instance.featherCount > 0)
          {
              if (InventoryManager.Instance.UseFeather())
              {
-                 Vector3 spawnPos = GetRandomValidPositionInNest();
-                 if (spawnPos != Vector3.positiveInfinity)
-                 {
-                     SpawnFeatherVisualAt(spawnPos, true);
-                     eggController.AddWarmth(warmthPerFeather);
-                     NotifyFeatherPositionsChanged();
-                 } else { /*... 위치 찾기 실패 로그 ...*/ InventoryManager.Instance.AddFeathers(1); }
+                 SpawnFeatherVisualAt(spawnPosition, true);
+                 eggController.AddWarmth(warmthPerFeather);
+                 NotifyFeatherPositionsChanged();
              }
          }
-         else { /*... 깃털 없음 로그 ...*/ }
+         else { Debug.Log("플레이어가 가진 깃털이 없습니다."); }
     }
 
     /// <summary> 개별 깃털 제거 요청 처리 </summary>
     public void RequestRemoveFeather(GameObject featherToRemove)
     {
-        // 이 함수는 편집 모드 여부와 관계없이 호출될 수 있음 (NestFeatherVisual에서 모드 체크 후 호출 가정)
+        if (!IsEditing) { /* 편집 모드 아닐 때 로그/처리 */ return; }
         if (InventoryManager.Instance == null || DataManager.Instance == null || eggController == null || featherToRemove == null) return;
         if (activeFeatherVisuals.Remove(featherToRemove))
         {
@@ -105,108 +129,92 @@ public class NestInteraction : MonoBehaviour, IPointerClickHandler
              Destroy(featherToRemove);
              NotifyFeatherPositionsChanged();
         }
-         else { /* ... 리스트 없음 경고 ... */ }
+         else { /* 리스트 없음 경고 */ }
     }
 
+    /// <summary> 지정된 월드 좌표에 깃털 프리팹 인스턴스를 생성하고 배치합니다. </summary>
     private void SpawnFeatherVisualAt(Vector3 worldPosition, bool logCreation = true)
     {
-        if (featherVisualPrefab == null || parentCanvas == null) return;
-
+        if (featherVisualPrefab == null || parentCanvas == null) { /* 참조 없음 로그 */ return; }
         GameObject newFeather = Instantiate(featherVisualPrefab, worldPosition, Quaternion.identity);
         NestFeatherVisual visualScript = newFeather.GetComponent<NestFeatherVisual>();
-        if (visualScript != null)
-        {
+        if (visualScript != null) {
             visualScript.nestInteractionManager = this;
             visualScript.removeButtonPrefab = this.removeButtonPrefab;
             visualScript.parentCanvasRef = this.parentCanvas;
-        }
+        } else { /* 스크립트 없음 경고 */ }
         activeFeatherVisuals.Add(newFeather);
         // if(logCreation) Debug.Log($"깃털 비주얼 생성됨...");
     }
 
-    public bool IsPositionInNestArea(Vector3 worldPosition) { /* ... 이전과 동일 ... */
+    /// <summary> 지정된 위치가 둥지 영역 내에 있는지 확인 </summary>
+    public bool IsPositionInNestArea(Vector3 worldPosition) {
         if (nestAreaCollider == null) return false;
         return nestAreaCollider.OverlapPoint(new Vector2(worldPosition.x, worldPosition.y));
-    }
-
-    public void NotifyFeatherPositionsChanged() { /* ... 이전과 동일 ... */
-        if (DataManager.Instance != null) {
-            List<Vector2> currentPositions = activeFeatherVisuals.Where(f => f != null).Select(f => (Vector2)f.transform.position).ToList();
-            DataManager.Instance.UpdateFeatherPositions(currentPositions);
-        }
-    }
-
-    /// <summary> 둥지 영역 내부의 유효한 랜덤 위치 찾기 (깃털 추가 시 사용) </summary>
-    private Vector3 GetRandomValidPositionInNest()
-    {
-        // Use the class field 'nestAreaCollider'
-        if (nestAreaCollider == null)
-        {
-             Debug.LogError("GetRandomValidPositionInNest: Nest Area Collider is not assigned!");
-             return Vector3.positiveInfinity; // Return failure indication
-        }
-
-        // Use the class field 'nestAreaCollider'
-        Bounds bounds = nestAreaCollider.bounds;
-        int maxAttempts = 100;
-        for (int i = 0; i < maxAttempts; i++)
-        {
-            float randomX = Random.Range(bounds.min.x, bounds.max.x);
-            float randomY = Random.Range(bounds.min.y, bounds.max.y);
-            Vector2 randomPoint = new Vector2(randomX, randomY);
-
-            // Use the class field 'nestAreaCollider' here too!
-            if (nestAreaCollider.OverlapPoint(randomPoint))
-            {
-                float zPos = this.transform.position.z - 0.1f;
-                return new Vector3(randomX, randomY, zPos);
-            }
-        }
-        Debug.LogWarning($"둥지 영역({nestAreaCollider.name}) 내부 랜덤 위치 찾기 실패 (시도: {maxAttempts}회).");
-        return Vector3.positiveInfinity;
-    }
-
-    private void ClearAllFeatherVisuals() { /* ... 이전과 동일 ... */
-         for(int i = activeFeatherVisuals.Count - 1; i >= 0; i--) { if(activeFeatherVisuals[i] != null) Destroy(activeFeatherVisuals[i]); }
-         activeFeatherVisuals.Clear();
      }
 
+    /// <summary> 현재 깃털 위치 리스트를 DataManager에 업데이트 요청 </summary>
+    public void NotifyFeatherPositionsChanged() {
+         if (DataManager.Instance != null) {
+             List<Vector2> currentPositions = activeFeatherVisuals.Where(f => f != null).Select(f => (Vector2)f.transform.position).ToList();
+             DataManager.Instance.UpdateFeatherPositions(currentPositions);
+         }
+     }
 
-    // *** 새로 추가: 편집 모드 설정 및 시각 효과 처리 함수 ***
-    /// <summary>
-    /// 둥지 편집 모드를 설정/해제합니다. UI 토글 버튼의 OnValueChanged 이벤트에 연결됩니다.
-    /// </summary>
-    /// <param name="isOn">true이면 편집 모드 활성화, false이면 비활성화</param>
+    // GetRandomValidPositionInNest 함수 (다른 곳에서 사용 안하면 삭제 가능)
+    private Vector3 GetRandomValidPositionInNest() {
+         if (nestAreaCollider == null) return Vector3.positiveInfinity;
+         Bounds bounds = nestAreaCollider.bounds;
+         int maxAttempts = 100;
+         for (int i = 0; i < maxAttempts; i++) {
+             float randomX = Random.Range(bounds.min.x, bounds.max.x);
+             float randomY = Random.Range(bounds.min.y, bounds.max.y);
+             Vector2 randomPoint = new Vector2(randomX, randomY);
+             if (nestAreaCollider.OverlapPoint(randomPoint)) { return new Vector3(randomX, randomY, GetFeatherZPos()); }
+         }
+         Debug.LogWarning($"둥지 영역 내부 랜덤 위치 찾기 실패...");
+         return Vector3.positiveInfinity;
+     }
+
+    /// <summary> 현재 활성화된 모든 깃털 비주얼 제거 </summary>
+    private void ClearAllFeatherVisuals() {
+          for(int i = activeFeatherVisuals.Count - 1; i >= 0; i--) { if(activeFeatherVisuals[i] != null) Destroy(activeFeatherVisuals[i]); }
+          activeFeatherVisuals.Clear();
+      }
+
+    /// <summary> 깃털이 배치될 Z 좌표 계산 </summary>
+    private float GetFeatherZPos() { return this.transform.position.z - 0.1f; }
+
+    // --- 편집 모드 관리 ---
+    /// <summary> 둥지 편집 모드 설정 (UI 토글에서 호출) </summary>
     public void SetEditMode(bool isOn)
     {
+        if (IsEditing == isOn) return;
         IsEditing = isOn;
-        Debug.Log($"둥지 편집 모드: {(IsEditing ? "활성화됨" : "비활성화됨")}");
-
-        // 시각 효과 업데이트
+        // Debug.Log($"둥지 편집 모드: {(IsEditing ? "활성화됨" : "비활성화됨")}");
         UpdateVisualsForEditMode(IsEditing);
-
-        // TODO: 편집 모드 변경 시 필요한 추가 로직 (예: 툴바 표시/숨기기, 깃털 상호작용 활성/비활성)
-        // 이 부분은 다음 단계에서 구현합니다.
+        if (!IsEditing) { CancelAllFeatherInteractions(); } // 편집 모드 종료 시 상호작용 취소
     }
 
-    /// <summary>
-    /// 편집 모드 상태에 따라 시각적 효과(예: 배경 어둡게 하기)를 업데이트합니다.
-    /// </summary>
-    /// <param name="isEditing">현재 편집 모드 상태</param>
-private void UpdateVisualsForEditMode(bool isEditing)
-  {
-      if (editModeDimPanel != null)
-      {
-          // *** ADD LOGS ***
-          Debug.Log($"UpdateVisualsForEditMode called. Setting Dim Panel '{editModeDimPanel.name}' Active: {isEditing}");
-          editModeDimPanel.SetActive(isEditing);
-          // Optional: Check if it actually became active/inactive
-          // Debug.Log($"Dim Panel Is Now Active: {editModeDimPanel.activeSelf}");
-      }
-      else
-      {
-           // This log should not appear if the Start() check passed, but good for sanity
-           Debug.LogError("UpdateVisualsForEditMode: editModeDimPanel reference is NULL!");
-      }
-  }
+    /// <summary> 편집 모드 시각 효과 및 툴바 업데이트 </summary>
+    private void UpdateVisualsForEditMode(bool isEditing)
+    {
+        if (editModeDimPanel != null) { editModeDimPanel.SetActive(isEditing); }
+        else { Debug.LogError("UpdateVisualsForEditMode: editModeDimPanel 참조가 NULL입니다!", this); }
+
+        // *** editModeToolbarPanel 사용 ***
+        if (editModeToolbarPanel != null) { editModeToolbarPanel.SetActive(isEditing); }
+        else { Debug.LogError("UpdateVisualsForEditMode: editModeToolbarPanel 참조가 NULL입니다!", this); }
+    }
+
+    /// <summary> 모든 활성 깃털의 상호작용 상태를 취소합니다. </summary>
+    private void CancelAllFeatherInteractions()
+    {
+        foreach(GameObject featherGO in activeFeatherVisuals)
+        {
+             NestFeatherVisual visual = featherGO?.GetComponent<NestFeatherVisual>();
+             visual?.CancelInteraction();
+        }
+        NestFeatherVisual.ClearInteractionFlag();
+    }
 }
