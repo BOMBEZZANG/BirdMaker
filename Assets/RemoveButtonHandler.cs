@@ -1,53 +1,43 @@
 using UnityEngine;
-using UnityEngine.UI; // 기본 UI 버튼 사용 시
+using UnityEngine.UI;
 
-/// <summary>
-/// 깃털 옆에 나타나는 '제거' 버튼에 부착됩니다.
-/// 클릭 시 지정된 깃털의 제거를 NestInteraction에게 요청하고, 상호작용 플래그를 해제합니다.
-/// </summary>
 [RequireComponent(typeof(Button))]
 public class RemoveButtonHandler : MonoBehaviour
 {
-    private GameObject featherToRemove; // 제거할 대상 깃털 오브젝트
-    private NestInteraction nestInteractionManager; // NestInteraction 참조
+    private GameObject featherToRemove; // 또는 itemToRemove 로 일반화 가능
+    private NestInteraction nestInteractionManager;
 
-    /// <summary>
-    /// 이 버튼을 생성할 때 외부(NestFeatherVisual)에서 호출하여 초기 설정을 합니다.
-    /// </summary>
-    public void Initialize(GameObject targetFeather, NestInteraction manager)
+    public void Initialize(GameObject targetItem, NestInteraction manager)
     {
-        featherToRemove = targetFeather;
+        featherToRemove = targetItem; // 이름은 feather지만 이끼에도 사용됨
         nestInteractionManager = manager;
-
-        Button button = GetComponent<Button>();
-        // 리스너 중복 추가 방지
-        button.onClick.RemoveAllListeners();
-        button.onClick.AddListener(OnRemoveButtonClick);
+        Button btn = GetComponent<Button>();
+        btn.onClick.RemoveAllListeners();
+        btn.onClick.AddListener(OnRemoveButtonClick);
     }
 
-    /// <summary>
-    /// 제거 버튼이 클릭되었을 때 호출될 함수
-    /// </summary>
     private void OnRemoveButtonClick()
     {
-        // Debug.Log($"제거 버튼 클릭됨: [{featherToRemove?.name}] 제거 요청."); // 로그 레벨 조절
-        // 유효한 참조가 있을 때만 제거 요청
+        // Debug.Log($"제거 버튼 클릭됨: [{featherToRemove?.name}] 제거 요청.");
         if (nestInteractionManager != null && featherToRemove != null)
         {
-            nestInteractionManager.RequestRemoveFeather(featherToRemove);
-        }
-        else
-        {
-             Debug.LogError("제거 요청 실패: Manager 또는 Feather 참조가 없습니다.");
-        }
+             // 제거 대상이 깃털인지 이끼인지 확인하고 맞는 함수 호출
+             if (featherToRemove.GetComponent<NestFeatherVisual>() != null)
+             {
+                 nestInteractionManager.RequestRemoveFeather(featherToRemove);
+             }
+             else if (featherToRemove.GetComponent<NestMossVisual>() != null)
+             {
+                  nestInteractionManager.RequestRemoveMoss(featherToRemove);
+             }
+             else { Debug.LogError("알 수 없는 아이템 타입 제거 요청!", featherToRemove);}
 
-        // *** 중요: 제거 버튼 클릭 후 static 플래그 해제 ***
-        NestFeatherVisual.ClearInteractionFlag();
+             // *** 중요: Static 플래그 해제 제거됨 ***
+             // NestFeatherVisual.ClearInteractionFlag(); // 제거
+        }
+        else { /* 참조 없음 로그 */ }
 
-        // 버튼 자신 파괴 (깃털은 RequestRemoveFeather에서 파괴됨)
+        // 버튼 자신 파괴
         Destroy(gameObject);
     }
-
-    // OnDestroy에서 리스너 제거는 보통 자동으로 되지만 명시적으로 할 수도 있습니다.
-    // void OnDestroy() { Button btn = GetComponent<Button>(); if(btn != null) btn.onClick.RemoveAllListeners(); }
 }
