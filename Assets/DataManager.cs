@@ -19,10 +19,6 @@ public class DataManager : MonoBehaviour
 
     // === Unity 생명주기 함수 ===
 
-    /// <summary>
-    /// 게임 오브젝트가 처음 활성화되기 전에 호출됩니다.
-    /// 싱글톤 인스턴스를 설정하고, 저장 경로를 설정하며, 게임 데이터를 로드합니다.
-    /// </summary>
     void Awake()
     {
         // 싱글톤 패턴 구현
@@ -47,7 +43,6 @@ public class DataManager : MonoBehaviour
 
     /// <summary>
     /// 애플리케이션 종료 시 자동으로 게임 데이터를 저장합니다.
-    /// (에디터에서는 Play 모드 중지 시, 빌드된 게임에서는 종료 시 호출됨)
     /// </summary>
     void OnApplicationQuit()
     {
@@ -84,8 +79,8 @@ public class DataManager : MonoBehaviour
                 if (CurrentGameData.mossPositions == null)
                     CurrentGameData.mossPositions = new List<Vector2>();
 
-                // 로드 성공 로그 (더 자세한 정보 포함)
-                Debug.Log($"게임 데이터 로드 성공. Branches: {CurrentGameData.branches}, Feathers: {CurrentGameData.feathers}, Moss: {CurrentGameData.moss}, NestBuilt: {CurrentGameData.nestBuilt}, EggWarmth: {CurrentGameData.eggWarmth}, EggHumidity: {CurrentGameData.eggHumidity}, PlacedFeathers: {CurrentGameData.featherPositions.Count}, PlacedMoss: {CurrentGameData.mossPositions.Count}");
+                // 로드 성공 로그 (주요 데이터 포함)
+                Debug.Log($"게임 데이터 로드 성공. Money: {CurrentGameData.playerMoney}, HasThermo: {CurrentGameData.hasThermometer}, HasHygro: {CurrentGameData.hasHygrometer}, Branches: {CurrentGameData.branches}, Feathers: {CurrentGameData.feathers}, Moss: {CurrentGameData.moss}, NestBuilt: {CurrentGameData.nestBuilt}, EggWarmth: {CurrentGameData.eggWarmth:F1}, EggHumidity: {CurrentGameData.eggHumidity:F1}, Growth: {CurrentGameData.eggGrowthPoints:F1}, Hatched: {CurrentGameData.eggHasHatched}, PlacedFeathers: {CurrentGameData.featherPositions.Count}, PlacedMoss: {CurrentGameData.mossPositions.Count}");
             }
             catch (System.Exception e) // 파일 읽기 또는 JSON 파싱 중 오류 발생 시
             {
@@ -113,7 +108,7 @@ public class DataManager : MonoBehaviour
 
         try
         {
-            // CurrentGameData 객체를 JSON 문자열로 변환 (true: 가독성 좋게 포맷팅)
+            // CurrentGameData 객체를 JSON 문자열로 변환 (true: 보기 좋게 포맷팅)
             string json = JsonUtility.ToJson(CurrentGameData, true);
             // 파일에 JSON 문자열 쓰기 (기존 파일 있으면 덮어쓰기)
             File.WriteAllText(saveFilePath, json);
@@ -130,61 +125,66 @@ public class DataManager : MonoBehaviour
     /// </summary>
     private void CreateNewGameData()
     {
-         CurrentGameData = new GameData(); // GameData 클래스의 생성자 호출 (기본값 설정)
+         CurrentGameData = new GameData(); // GameData 클래스의 생성자 호출 (기본값 설정됨)
     }
 
-    // === 외부 스크립트에서 데이터 업데이트를 요청하는 함수들 ===
-    // 다른 매니저(InventoryManager, EggController 등)에서 상태가 변경될 때마다
-    // 이 함수들을 호출하여 DataManager의 CurrentGameData를 최신 상태로 유지합니다.
+    // === 외부에서 데이터 업데이트를 요청하는 함수들 ===
 
     /// <summary> 인벤토리 아이템 개수 업데이트 </summary>
     public void UpdateInventoryData(int branches, int feathers, int moss)
     {
-        if (CurrentGameData != null)
-        {
-             CurrentGameData.branches = branches;
-             CurrentGameData.feathers = feathers;
-             CurrentGameData.moss = moss; // 인벤토리 이끼 개수
-             // Debug.Log($"DataManager Updated Inventory: B={branches}, F={feathers}, M={moss}");
-        }
+        if (CurrentGameData != null) { CurrentGameData.branches = branches; CurrentGameData.feathers = feathers; CurrentGameData.moss = moss; }
     }
-
     /// <summary> 둥지 건설 상태 업데이트 </summary>
     public void UpdateNestStatus(bool isBuilt)
     {
         if (CurrentGameData != null) { CurrentGameData.nestBuilt = isBuilt; }
     }
-
     /// <summary> 알 온기 업데이트 </summary>
-    public void UpdateEggData(float warmth) // 또는 UpdateEggWarmth
+    public void UpdateEggData(float warmth) // 이름 변경 고려: UpdateEggWarmth
     {
         if (CurrentGameData != null) { CurrentGameData.eggWarmth = warmth; }
     }
-
     /// <summary> 알 습도 업데이트 </summary>
     public void UpdateEggHumidity(float humidity)
     {
         if (CurrentGameData != null) { CurrentGameData.eggHumidity = humidity; }
     }
-
     /// <summary> 배치된 깃털 위치 리스트 업데이트 </summary>
     public void UpdateFeatherPositions(List<Vector2> positions)
     {
-         if (CurrentGameData != null)
-         {
-             // 리스트 내용을 복사하여 할당 (원본 리스트 직접 참조 방지)
-             CurrentGameData.featherPositions = new List<Vector2>(positions ?? new List<Vector2>());
-             // Debug.Log($"DataManager Updated Feather Positions: Count={CurrentGameData.featherPositions.Count}");
-         }
+         if (CurrentGameData != null) { CurrentGameData.featherPositions = new List<Vector2>(positions ?? new List<Vector2>()); }
     }
-
     /// <summary> 배치된 이끼 위치 리스트 업데이트 </summary>
     public void UpdateMossPositions(List<Vector2> positions)
     {
-         if (CurrentGameData != null)
-         {
-             CurrentGameData.mossPositions = new List<Vector2>(positions ?? new List<Vector2>());
-             // Debug.Log($"DataManager Updated Moss Positions: Count={CurrentGameData.mossPositions.Count}");
-         }
+         if (CurrentGameData != null) { CurrentGameData.mossPositions = new List<Vector2>(positions ?? new List<Vector2>()); }
     }
+    /// <summary> 알 성장 포인트 업데이트 </summary>
+    public void UpdateEggGrowth(float points)
+    {
+        if (CurrentGameData != null) { CurrentGameData.eggGrowthPoints = points; }
+    }
+    /// <summary> 알 부화 상태 업데이트 </summary>
+    public void UpdateEggHatchedStatus(bool hatched)
+    {
+         if (CurrentGameData != null) { CurrentGameData.eggHasHatched = hatched; }
+    }
+    /// <summary> 플레이어 재화 업데이트 </summary>
+    public void UpdatePlayerMoney(int money)
+    {
+         if (CurrentGameData != null) { CurrentGameData.playerMoney = Mathf.Max(0, money); } // 음수 방지
+    }
+    /// <summary> 특정 도구 보유 상태 업데이트 (온도계) </summary>
+    public void SetHasThermometer(bool has)
+    {
+        if(CurrentGameData != null) CurrentGameData.hasThermometer = has;
+    }
+    /// <summary> 특정 도구 보유 상태 업데이트 (습도계) </summary>
+    public void SetHasHygrometer(bool has)
+    {
+        if(CurrentGameData != null) CurrentGameData.hasHygrometer = has;
+    }
+    // 필요 시 두 도구 상태를 한번에 업데이트하는 함수 추가 가능
+    // public void UpdateToolStatus(bool hasThermo, bool hasHygro) { ... }
 }

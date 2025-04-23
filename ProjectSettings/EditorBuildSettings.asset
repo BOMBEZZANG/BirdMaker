@@ -17,6 +17,12 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/NestViewScene.unity
     guid: 658480197387c8a41866957f216ec9c3
+  - enabled: 1
+    path: Assets/Scenes/TownViewScene.unity
+    guid: d6bdec9a42382ec44bc1e4aadf8e6e2e
+  - enabled: 1
+    path: Assets/Scenes/ShopScene.unity
+    guid: 07cfde4a88600754e986a89851c6c606
   m_configObjects:
     com.unity.adaptiveperformance.simulator.provider_settings: {fileID: 11400000, guid: 558a4e893b493a24ea09609b1cc686e3, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}

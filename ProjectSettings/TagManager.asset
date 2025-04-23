@@ -10,6 +10,11 @@ TagManager:
   - FeatherNode
   - TrashArea
   - MossNode
+  - TownEntranceTrigger
+  - ExplorationEntranceTrigger
+  - ShopTrigger
+  - ShopkeeperTrigger
+  - TownReturnTrigger
   layers:
   - Default
   - TransparentFX
