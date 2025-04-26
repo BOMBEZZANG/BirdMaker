@@ -4,33 +4,38 @@ using System.Collections.Generic;
 [System.Serializable]
 public class GameData
 {
-    // 기존 데이터
+    // 인벤토리 및 둥지 상태
     public int branches;
     public int feathers;
-    public int moss; // 인벤토리 개수
+    public int moss;
     public bool nestBuilt;
-    public float eggWarmth;
-    public float eggHumidity;
-    public List<Vector2> featherPositions;
-    public List<Vector2> mossPositions;
-    public float eggGrowthPoints;
-    public bool eggHasHatched;
-    public int playerMoney; // 플레이어 재화
-
-    // *** 새로 추가: 도구 보유 여부 ***
+    public int playerMoney;
     public bool hasThermometer;
     public bool hasHygrometer;
+
+    // 배치된 아이템 위치
+    public List<Vector2> featherPositions;
+    public List<Vector2> mossPositions;
+
+    // 둥지 환경 상태
+    public float nestTemperature;
+    public float nestHumidity;
+
+    // *** 알 성장 및 부화 상태 (eggGrowthPoints 다시 추가) ***
+    public float eggGrowthPoints; // 현재 누적된 성장 포인트
+    public bool eggHasHatched;   // 알이 부화했는지 여부
 
     // 기본값 생성자
     public GameData()
     {
         branches = 0; feathers = 0; moss = 0;
-        nestBuilt = false; eggWarmth = 0f; eggHumidity = 50f;
+        nestBuilt = false; playerMoney = 10;
+        hasThermometer = false; hasHygrometer = false;
         featherPositions = new List<Vector2>();
         mossPositions = new List<Vector2>();
-        eggGrowthPoints = 0f; eggHasHatched = false;
-        playerMoney = 10; // *** 초기 자금 약간 지급 (예: 10) ***
-        hasThermometer = false; // 도구 초기 상태
-        hasHygrometer = false;  // 도구 초기 상태
+        nestTemperature = 15f; // 기본 주변 온도
+        nestHumidity = 40f;    // 기본 주변 습도
+        eggGrowthPoints = 0f; // *** 성장 포인트 초기화 추가 ***
+        eggHasHatched = false;
     }
 }

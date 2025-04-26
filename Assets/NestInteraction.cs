@@ -1,252 +1,210 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 using System.Collections.Generic;
-using Random = UnityEngine.Random;
 using System.Collections;
 using System.Linq;
+using Random = UnityEngine.Random;
 
 [RequireComponent(typeof(Collider2D))]
 public class NestInteraction : MonoBehaviour, IPointerClickHandler
 {
     [Header("Item Prefabs")]
     [SerializeField] private GameObject featherVisualPrefab;
-    [SerializeField] private GameObject mossVisualPrefab; // *** 이끼 프리팹 추가 ***
+    [SerializeField] private GameObject mossVisualPrefab;
 
     [Header("Area Collider")]
+    [Tooltip("깃털/이끼가 배치될 영역을 정의하는 콜라이더")]
     [SerializeField] private Collider2D nestAreaCollider;
 
     [Header("Item Effects")]
-    [SerializeField] private float warmthPerFeather = 5f;
-    [SerializeField] private float humidityPerMoss = 5f; // *** 이끼 효과 추가 ***
+    [Tooltip("깃털 1개당 효과")]
+    [SerializeField] private float warmthPerFeather = 5f; // 이 값은 NestEnvironmentManager로 이동 완료됨 (참고용)
+    [Tooltip("이끼 1개당 효과")]
+    [SerializeField] private float humidityPerMoss = 5f; // 이 값은 NestEnvironmentManager로 이동 완료됨 (참고용)
 
     [Header("UI Elements")]
+    [Tooltip("깃털/이끼 제거 버튼 프리팹")]
     [SerializeField] private GameObject removeButtonPrefab;
+    [Tooltip("UI 요소(제거 버튼 등)가 배치될 부모 Canvas")]
     [SerializeField] private Canvas parentCanvas;
+    [Tooltip("편집 모드 시 활성화될 배경 어둡게 하는 Panel")]
     [SerializeField] private GameObject editModeDimPanel;
-    [SerializeField] private GameObject editModeToolbarPanel; // 툴바 Panel
-    [SerializeField] private EditToolbarController toolbarController; // *** 툴바 컨트롤러 참조 추가 ***
+    [Tooltip("편집 모드 시 활성화될 툴바 Panel")]
+    [SerializeField] private GameObject editModeToolbarPanel;
+    [Tooltip("툴바 UI 컨트롤러 스크립트 참조")]
+    [SerializeField] private EditToolbarController toolbarController;
 
     // 내부 관리용 변수
-    private EggController eggController;
+    // private EggController eggController; // 제거됨
     private List<GameObject> activeFeatherVisuals = new List<GameObject>();
-    private List<GameObject> activeMossVisuals = new List<GameObject>(); // *** 이끼 비주얼 리스트 추가 ***
-    public bool IsEditing { get; private set; } = false;
-    private Camera mainCamera;
-    private bool isAnyVisualInteracting = false; // *** 상호작용 상태 변수 (static 제거) ***
+    private List<GameObject> activeMossVisuals = new List<GameObject>();
+    public bool IsEditing { get; private set; } = false; // 편집 모드 상태
+    private Camera mainCamera; // 카메라 캐싱
+    private bool isAnyVisualInteracting = false; // 현재 어떤 비주얼 오브젝트든 상호작용 중인지
 
-    [System.Obsolete]
     void Start()
     {
         mainCamera = Camera.main;
-        eggController = FindObjectOfType<EggController>();
         // 필수 참조 확인
         if (featherVisualPrefab == null) Debug.LogError("Feather Visual Prefab Missing!", this);
-        if (mossVisualPrefab == null) Debug.LogError("Moss Visual Prefab Missing!", this); // 이끼 프리팹 확인
+        if (mossVisualPrefab == null) Debug.LogError("Moss Visual Prefab Missing!", this);
         if (nestAreaCollider == null) Debug.LogError("Nest Area Collider Missing!", this);
         if (removeButtonPrefab == null) Debug.LogError("Remove Button Prefab Missing!", this);
         if (parentCanvas == null) Debug.LogError("Parent Canvas Missing!", this);
         if (editModeDimPanel == null) Debug.LogError("Edit Mode Dim Panel Missing!", this);
         if (editModeToolbarPanel == null) Debug.LogError("Edit Mode Toolbar Panel Missing!", this);
-        if (toolbarController == null) Debug.LogError("Toolbar Controller Missing!", this); // 툴바 컨트롤러 확인
-        if (eggController == null) Debug.LogError("EggController Missing!", this);
+        if (toolbarController == null) Debug.LogError("Toolbar Controller Missing!", this);
         if (InventoryManager.Instance == null) Debug.LogError("InventoryManager Instance Missing!", this);
         if (DataManager.Instance == null) Debug.LogError("DataManager Instance Missing!", this);
+        if (NestEnvironmentManager.Instance == null) Debug.LogError("NestEnvironmentManager Instance Missing!", this);
 
-        SetEditMode(false);
-        StartCoroutine(InitializeVisualsAfterOneFrame());
+        SetEditMode(false); // 시작 시 편집 모드 비활성화
+        StartCoroutine(InitializeVisualsAfterOneFrame()); // 저장된 비주얼 복원
     }
 
+    /// <summary> 저장된 데이터 기준으로 초기 비주얼 위치 복원 </summary>
     private IEnumerator InitializeVisualsAfterOneFrame()
     {
-        yield return null;
+        yield return null; // 한 프레임 대기
+        // 매니저 초기화 대기
+        float timeout = Time.time + 5f;
+        while ((DataManager.Instance == null || !DataManager.Instance.IsDataManagerInitialized || NestEnvironmentManager.Instance == null || !NestEnvironmentManager.Instance.IsInitialized) && Time.time < timeout)
+        { yield return null; }
+
         if (DataManager.Instance?.CurrentGameData != null)
         {
             GameData data = DataManager.Instance.CurrentGameData;
-            // 기존 비주얼 정리
             ClearAllVisuals();
             // 깃털 복원
-            // Debug.Log($"초기 둥지 깃털 로드. 개수: {data.featherPositions.Count}.");
             foreach (Vector2 pos in data.featherPositions) { SpawnFeatherVisualAt(new Vector3(pos.x, pos.y, GetItemZPos()), false); }
-            // *** 이끼 복원 추가 ***
-            // Debug.Log($"초기 둥지 이끼 로드. 개수: {data.mossPositions.Count}.");
+            // 이끼 복원
             foreach (Vector2 pos in data.mossPositions) { SpawnMossVisualAt(new Vector3(pos.x, pos.y, GetItemZPos()), false); }
+            // 로드 후 환경 즉시 재계산
+            NestEnvironmentManager.Instance?.RecalculateEnvironment();
         }
-        else { /* 데이터 준비 안됨 로그 */ }
+        else { Debug.LogError("DataManager/데이터 준비 안됨. 초기 비주얼 생성 불가."); }
     }
 
     /// <summary> 둥지 클릭 시 (편집 모드에서 아이템 배치) </summary>
     public void OnPointerClick(PointerEventData eventData)
     {
-        // 편집 모드가 아니거나, 다른 비주얼 상호작용 중이면 무시
-        if (!IsEditing || IsAnyVisualInteracting()) return;
-        // 왼쪽 클릭일 때만 배치 시도
+        if (!IsEditing || IsAnyVisualInteracting()) return; // 편집 모드 + 다른 상호작용 없을 때만
         if (eventData.button == PointerEventData.InputButton.Left)
         {
-            // 툴바에서 선택된 아이템 확인
             EditToolbarController.PlacementType selection = toolbarController.CurrentSelection;
-            if (selection == EditToolbarController.PlacementType.None)
-            {
-                // Debug.Log("배치할 아이템이 선택되지 않았습니다."); // 로그 레벨 조절
-                return; // 선택된 아이템 없으면 종료
-            }
+            if (selection == EditToolbarController.PlacementType.None) return; // 선택된 아이템 없으면 무시
 
-            // 클릭 위치 계산
             Vector3 clickWorldPosition = GetWorldPosFromScreenClick(eventData);
-            if (clickWorldPosition == Vector3.positiveInfinity) return; // 위치 계산 실패
+            // GetWorldPosFromScreenClick 실패 시 처리
+            if (clickWorldPosition == Vector3.positiveInfinity) return;
 
-            // 클릭 위치 유효성 검사
             if (IsPositionInNestArea(clickWorldPosition))
             {
-                // 선택된 아이템 종류에 따라 배치 시도
-                if (selection == EditToolbarController.PlacementType.Feather)
-                {
-                    TryAddItemAt(clickWorldPosition, EditToolbarController.PlacementType.Feather);
-                }
-                else if (selection == EditToolbarController.PlacementType.Moss)
-                {
-                     TryAddItemAt(clickWorldPosition, EditToolbarController.PlacementType.Moss);
-                }
+                TryAddItemAt(clickWorldPosition, selection); // 선택된 아이템 배치 시도
             }
-            else { /* 둥지 영역 아님 로그 */ }
+            else { Debug.Log("클릭한 위치가 둥지 영역 내부가 아닙니다."); }
         }
     }
 
-    /// <summary> 지정된 위치에 선택된 아이템 추가 시도 (깃털/이끼 공통 로직) </summary>
+    /// <summary> 지정된 위치에 선택된 아이템 추가 시도 </summary>
     private void TryAddItemAt(Vector3 spawnPosition, EditToolbarController.PlacementType itemType)
     {
-        if (InventoryManager.Instance == null || DataManager.Instance == null || eggController == null) return;
+        if (InventoryManager.Instance == null || NestEnvironmentManager.Instance == null) return; // 매니저 확인
 
         bool itemUsed = false;
-        // 아이템 종류에 따라 인벤토리 확인 및 사용
-        if (itemType == EditToolbarController.PlacementType.Feather && InventoryManager.Instance.featherCount > 0)
-        {
-            itemUsed = InventoryManager.Instance.UseFeather();
-        }
-        else if (itemType == EditToolbarController.PlacementType.Moss && InventoryManager.Instance.mossCount > 0)
-        {
-             itemUsed = InventoryManager.Instance.UseMoss();
-        }
-        else
-        {
-             Debug.Log($"인벤토리에 {itemType}이(가) 없습니다.");
-             return; // 해당 아이템 없으면 종료
-        }
+        if (itemType == EditToolbarController.PlacementType.Feather && InventoryManager.Instance.featherCount > 0) { itemUsed = InventoryManager.Instance.UseFeather(); }
+        else if (itemType == EditToolbarController.PlacementType.Moss && InventoryManager.Instance.mossCount > 0) { itemUsed = InventoryManager.Instance.UseMoss(); }
+        else { Debug.Log($"인벤토리에 {itemType} 없음."); return; }
 
-        // 인벤토리 사용 성공 시
         if (itemUsed)
         {
-            // 아이템 종류에 따라 생성 및 효과 적용
-            if (itemType == EditToolbarController.PlacementType.Feather)
-            {
-                 SpawnFeatherVisualAt(spawnPosition, true);
-                 eggController.AddWarmth(warmthPerFeather);
-                 NotifyFeatherPositionsChanged(); // 저장 요청
-            }
-            else if (itemType == EditToolbarController.PlacementType.Moss)
-            {
-                 SpawnMossVisualAt(spawnPosition, true);
-                 eggController.AddHumidity(humidityPerMoss); // 습도 증가
-                 NotifyMossPositionsChanged(); // 저장 요청
-            }
+            if (itemType == EditToolbarController.PlacementType.Feather) { SpawnFeatherVisualAt(spawnPosition, true); NotifyFeatherPositionsChanged(); }
+            else if (itemType == EditToolbarController.PlacementType.Moss) { SpawnMossVisualAt(spawnPosition, true); NotifyMossPositionsChanged(); }
+            // 환경 재계산은 Notify... 함수 내부에서 호출됨
         }
-        // UseItem 실패 로그는 InventoryManager에서 처리
     }
-
 
     // --- 아이템 제거 요청 처리 ---
-    /// <summary> 개별 깃털 제거 요청 처리 </summary>
     public void RequestRemoveFeather(GameObject featherToRemove)
     {
-        if (!IsEditing) return; // 편집 모드 체크
-        if (InventoryManager.Instance == null || DataManager.Instance == null || eggController == null || featherToRemove == null) return;
-        if (activeFeatherVisuals.Remove(featherToRemove))
-        {
-             InventoryManager.Instance.AddFeathers(1);
-             eggController.RemoveWarmth(warmthPerFeather);
-             Destroy(featherToRemove);
-             NotifyFeatherPositionsChanged(); // 위치 변경 저장
-        }
+        if (!IsEditing || InventoryManager.Instance == null || featherToRemove == null) return;
+        if (activeFeatherVisuals.Remove(featherToRemove)) { InventoryManager.Instance.AddFeathers(1); Destroy(featherToRemove); NotifyFeatherPositionsChanged(); NestEnvironmentManager.Instance?.RecalculateEnvironment(); }
     }
-    /// <summary> 개별 이끼 제거 요청 처리 </summary>
-    public void RequestRemoveMoss(GameObject mossToRemove) // *** 이끼 제거 함수 추가 ***
+    public void RequestRemoveMoss(GameObject mossToRemove)
     {
-        if (!IsEditing) return; // 편집 모드 체크
-        if (InventoryManager.Instance == null || DataManager.Instance == null || eggController == null || mossToRemove == null) return;
-        if (activeMossVisuals.Remove(mossToRemove)) // 이끼 리스트에서 제거
-        {
-             InventoryManager.Instance.AddMoss(1); // 이끼 인벤토리 복원
-             eggController.RemoveHumidity(humidityPerMoss); // 습도 감소
-             Destroy(mossToRemove);
-             NotifyMossPositionsChanged(); // 위치 변경 저장
-        }
+        if (!IsEditing || InventoryManager.Instance == null || mossToRemove == null) return;
+        if (activeMossVisuals.Remove(mossToRemove)) { InventoryManager.Instance.AddMoss(1); Destroy(mossToRemove); NotifyMossPositionsChanged(); NestEnvironmentManager.Instance?.RecalculateEnvironment(); }
     }
 
     // --- 비주얼 생성 ---
-    private void SpawnFeatherVisualAt(Vector3 worldPosition, bool logCreation = true) { /* ... 이전 코드와 유사 (프리팹, 리스트 변수명 주의) ... */
+    private void SpawnFeatherVisualAt(Vector3 worldPosition, bool logCreation = true) {
         if (featherVisualPrefab == null || parentCanvas == null) return;
         GameObject newFeather = Instantiate(featherVisualPrefab, worldPosition, Quaternion.identity);
         NestFeatherVisual visualScript = newFeather.GetComponent<NestFeatherVisual>();
-        if (visualScript != null) { /* ... 참조 설정 ... */ visualScript.nestInteractionManager = this; visualScript.removeButtonPrefab = this.removeButtonPrefab; visualScript.parentCanvasRef = this.parentCanvas; }
+        if (visualScript != null) { visualScript.nestInteractionManager = this; visualScript.removeButtonPrefab = this.removeButtonPrefab; visualScript.parentCanvasRef = this.parentCanvas; }
         activeFeatherVisuals.Add(newFeather);
-    }
-     private void SpawnMossVisualAt(Vector3 worldPosition, bool logCreation = true) { // *** 이끼 생성 함수 추가 ***
+     }
+    private void SpawnMossVisualAt(Vector3 worldPosition, bool logCreation = true) {
         if (mossVisualPrefab == null || parentCanvas == null) return;
         GameObject newMoss = Instantiate(mossVisualPrefab, worldPosition, Quaternion.identity);
-        NestMossVisual visualScript = newMoss.GetComponent<NestMossVisual>(); // NestMossVisual 스크립트 사용
-        if (visualScript != null) { /* ... 참조 설정 ... */ visualScript.nestInteractionManager = this; visualScript.removeButtonPrefab = this.removeButtonPrefab; visualScript.parentCanvasRef = this.parentCanvas; }
-        activeMossVisuals.Add(newMoss); // 이끼 리스트에 추가
-    }
-
+        NestMossVisual visualScript = newMoss.GetComponent<NestMossVisual>();
+        if (visualScript != null) { visualScript.nestInteractionManager = this; visualScript.removeButtonPrefab = this.removeButtonPrefab; visualScript.parentCanvasRef = this.parentCanvas; }
+        activeMossVisuals.Add(newMoss);
+     }
 
     // --- 위치/상태 업데이트 알림 ---
-    public void NotifyFeatherPositionsChanged() { /* ... 이전 코드와 동일 ... */
-         if (DataManager.Instance != null) { List<Vector2> pos = activeFeatherVisuals.Where(f => f != null).Select(f => (Vector2)f.transform.position).ToList(); DataManager.Instance.UpdateFeatherPositions(pos); } }
-    public void NotifyMossPositionsChanged() { // *** 이끼 위치 알림 함수 추가 ***
-         if (DataManager.Instance != null) { List<Vector2> pos = activeMossVisuals.Where(f => f != null).Select(f => (Vector2)f.transform.position).ToList(); DataManager.Instance.UpdateMossPositions(pos); } }
-
+    public void NotifyFeatherPositionsChanged() {
+         if (DataManager.Instance != null) { List<Vector2> pos = activeFeatherVisuals.Where(f => f != null).Select(f => (Vector2)f.transform.position).ToList(); DataManager.Instance.UpdateFeatherPositions(pos); }
+         NestEnvironmentManager.Instance?.RecalculateEnvironment();
+     }
+    public void NotifyMossPositionsChanged() {
+         if (DataManager.Instance != null) { List<Vector2> pos = activeMossVisuals.Where(f => f != null).Select(f => (Vector2)f.transform.position).ToList(); DataManager.Instance.UpdateMossPositions(pos); }
+         NestEnvironmentManager.Instance?.RecalculateEnvironment();
+     }
 
     // --- 편집 모드 및 상호작용 상태 관리 ---
-    public bool IsAnyVisualInteracting() { return isAnyVisualInteracting; } // Getter
-    public void SetInteractionActive(bool active) { isAnyVisualInteracting = active; } // Setter
-
-    public void SetEditMode(bool isOn) { /* ... 이전 코드와 동일 (CancelAllVisualInteractions 호출 확인) ... */
-        if (IsEditing == isOn) return; IsEditing = isOn;
-        // Debug.Log($"둥지 편집 모드: {(IsEditing ? "활성화됨" : "비활성화됨")}");
-        UpdateVisualsForEditMode(IsEditing);
-        if (!IsEditing) { CancelAllVisualInteractions(); }
-     }
-    private void UpdateVisualsForEditMode(bool isEditing) { /* ... 이전 코드와 동일 (Dim Panel, Toolbar Panel 활성화/비활성화) ... */
-        if (editModeDimPanel != null) { editModeDimPanel.SetActive(isEditing); } else { /*...*/ }
-        if (editModeToolbarPanel != null) { editModeToolbarPanel.SetActive(isEditing); } else { /*...*/ }
-     }
-    private void CancelAllVisualInteractions() { /* ... 이전 코드와 동일 (activeFeatherVisuals + activeMossVisuals 순회) ... */
-        // Debug.Log("모든 비주얼 상호작용 취소 시도...");
-        foreach(GameObject visualGO in activeFeatherVisuals) { visualGO?.GetComponent<NestFeatherVisual>()?.CancelInteraction(); }
-        foreach(GameObject visualGO in activeMossVisuals) { visualGO?.GetComponent<NestMossVisual>()?.CancelInteraction(); } // 이끼도 취소
-        SetInteractionActive(false); // 중앙 플래그 리셋
-        toolbarController?.Deselect(); // 툴바 선택 해제
-     }
+    public bool IsAnyVisualInteracting() { return isAnyVisualInteracting; }
+    public void SetInteractionActive(bool active) { isAnyVisualInteracting = active; }
+    public void SetEditMode(bool isOn) { if (IsEditing == isOn) return; IsEditing = isOn; UpdateVisualsForEditMode(IsEditing); if (!IsEditing) { CancelAllVisualInteractions(); } }
+    private void UpdateVisualsForEditMode(bool isEditing) { if (editModeDimPanel != null) editModeDimPanel.SetActive(isEditing); if (editModeToolbarPanel != null) editModeToolbarPanel.SetActive(isEditing); }
+    private void CancelAllVisualInteractions() { foreach(GameObject go in activeFeatherVisuals) { go?.GetComponent<NestFeatherVisual>()?.CancelInteraction(); } foreach(GameObject go in activeMossVisuals) { go?.GetComponent<NestMossVisual>()?.CancelInteraction(); } SetInteractionActive(false); toolbarController?.Deselect(); }
 
     // --- Helper 함수들 ---
-    public bool IsPositionInNestArea(Vector3 worldPosition) { /* ... 이전과 동일 ... */
-        if (nestAreaCollider == null) return false;
+    /// <summary> 지정된 위치가 둥지 영역 내에 있는지 확인 (수정됨: null 체크 및 반환 경로 확인) </summary>
+    public bool IsPositionInNestArea(Vector3 worldPosition)
+    {
+        if (nestAreaCollider == null)
+        {
+             Debug.LogWarning("IsPositionInNestArea: Nest Area Collider is not assigned!");
+             return false; // 콜라이더 없으면 false 반환
+        }
+        // OverlapPoint 결과 반환
         return nestAreaCollider.OverlapPoint(new Vector2(worldPosition.x, worldPosition.y));
-     }
-     private float GetItemZPos() { return this.transform.position.z - 0.1f; } // Z 좌표 계산 통일
-     private void ClearAllVisuals() { // 이름 변경 및 이끼 포함
+    }
+
+    /// <summary> 아이템이 배치될 Z 좌표 계산 </summary>
+    private float GetItemZPos() { return this.transform.position.z - 0.1f; } // 둥지보다 약간 앞에
+
+    /// <summary> 현재 활성화된 모든 깃털과 이끼 비주얼 제거 </summary>
+    private void ClearAllVisuals() {
           for(int i = activeFeatherVisuals.Count - 1; i >= 0; i--) { if(activeFeatherVisuals[i] != null) Destroy(activeFeatherVisuals[i]); }
           activeFeatherVisuals.Clear();
-          for(int i = activeMossVisuals.Count - 1; i >= 0; i--) { if(activeMossVisuals[i] != null) Destroy(activeMossVisuals[i]); } // 이끼도 클리어
+          for(int i = activeMossVisuals.Count - 1; i >= 0; i--) { if(activeMossVisuals[i] != null) Destroy(activeMossVisuals[i]); }
           activeMossVisuals.Clear();
       }
-     private Vector3 GetWorldPosFromScreenClick(PointerEventData eventData) // 헬퍼 함수로 분리
-     {
-         if (mainCamera == null) { Debug.LogError("카메라 참조 없음!"); return Vector3.positiveInfinity; }
+
+    /// <summary> 클릭된 화면 좌표를 월드 좌표로 변환 (수정됨: null 체크 시 return 추가) </summary>
+    private Vector3 GetWorldPosFromScreenClick(PointerEventData eventData)
+    {
+         if (mainCamera == null) { Debug.LogError("카메라 참조 없음! 월드 좌표를 계산할 수 없습니다."); return Vector3.positiveInfinity; } // 실패 값 반환
+
          float targetZ = GetItemZPos();
          Vector3 worldPosition = Vector3.zero;
          Ray ray = mainCamera.ScreenPointToRay(eventData.position);
          if (Mathf.Abs(ray.direction.z) > 0.0001f) { float t = (targetZ - ray.origin.z) / ray.direction.z; worldPosition = ray.GetPoint(t); }
          else { worldPosition = mainCamera.ScreenToWorldPoint(new Vector3(eventData.position.x, eventData.position.y, mainCamera.nearClipPlane + Mathf.Abs(targetZ - mainCamera.transform.position.z))); worldPosition.z = targetZ; }
-         return worldPosition;
-     }
+         return worldPosition; // 계산된 위치 반환
+    }
+
+    // GetRandomValidPositionInNest() // 필요 시 남겨둠
 }
